@@ -1004,7 +1004,9 @@
 
       input.onblur = commit;
       input.onkeydown = (e) => {
+        e.stopPropagation();
         if (e.key === 'Enter') {
+          e.preventDefault();
           commit();
           const col = cellId.charAt(0);
           const row = parseInt(cellId.slice(1));
@@ -1028,6 +1030,7 @@
       document.getElementById('countPending').innerText = totalPending;
       document.getElementById('countCompleted').innerText = totalCompleted;
       document.getElementById('openCommentCounterBadge').innerText = totalPending;
+      document.getElementById('railTaskCount').innerText = totalPending;
 
       let visible = comments;
       if (currentFilter === 'pending') {
@@ -1056,6 +1059,7 @@
         const card = document.createElement('div');
         card.setAttribute('data-comment-id', comment.id);
         card.setAttribute('data-cell', comment.cell);
+        card.tabIndex = 0;
         card.className = `word-comment-card p-3 rounded-2xl border bg-white ${
           isDone ? 'resolved-card' : 'border-slate-200'
         } ${isActive ? 'active-comment' : ''} shadow-xs relative group cursor-pointer`;
@@ -1074,7 +1078,7 @@
                 ${comment.authorInitials}
               </div>
               <div class="leading-tight">
-                <div class="font-bold text-xs text-slate-800">${comment.author}</div>
+                <div class="font-bold text-xs text-slate-800">${escapeHtml(comment.author)}</div>
                 <div class="text-[10px] text-slate-400 font-medium">${comment.timestamp}</div>
               </div>
             </div>
@@ -1104,7 +1108,7 @@
 
             ${isDone && comment.completedBy ? `
               <div class="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md w-max border border-emerald-200">
-                <i class="fa-solid fa-circle-check text-[10px] text-emerald-600"></i> Struck off by ${comment.completedBy}
+                <i class="fa-solid fa-circle-check text-[10px] text-emerald-600"></i> Struck off by ${escapeHtml(comment.completedBy)}
               </div>
             ` : ''}
           </div>
@@ -1115,10 +1119,10 @@
               ${comment.replies.map(r => `
                 <div class="text-[11px] bg-slate-50/80 p-2 rounded-xl border border-slate-100">
                   <div class="flex items-center justify-between text-[10px] mb-0.5">
-                    <span class="font-bold text-slate-800">${r.author}</span>
+                    <span class="font-bold text-slate-800">${escapeHtml(r.author)}</span>
                     <span class="text-slate-400">${r.timestamp}</span>
                   </div>
-                  <p class="text-slate-600">${r.text}</p>
+                  <p class="text-slate-600">${escapeHtml(r.text)}</p>
                 </div>
               `).join('')}
             </div>
@@ -1137,8 +1141,14 @@
       });
     }
 
+    function escapeHtml(str) {
+      return String(str ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[ch]);
+    }
+
     function formatCommentMentions(text) {
-      return text.replace(/(@[a-zA-Z0-9_]+)/g, '<span class="mention-tag">$1</span>');
+      return escapeHtml(text).replace(/(@[a-zA-Z0-9_]+)/g, '<span class="mention-tag">$1</span>');
     }
 
     function toggleCommentCompleted(commentId) {
@@ -1327,39 +1337,102 @@
     }
 
     function handleGlobalKeydown(e) {
-      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-          if (document.activeElement.id === 'draftCommentText') {
-            e.preventDefault();
-            submitDraftComment();
-          }
+      const mod = e.ctrlKey || e.metaKey;
+      const active = document.activeElement;
+
+      // Esc: close draft / modals and return to the grid (works from inside inputs too)
+      if (e.key === 'Escape') {
+        closeDraftCard();
+        closeShortcutsCheatSheet();
+        closeAiModal();
+        document.getElementById('shareModal').classList.add('hidden');
+        if (active && active !== document.body) active.blur();
+        return;
+      }
+
+      if (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') {
+        if (mod && e.key === 'Enter' && active.id === 'draftCommentText') {
+          e.preventDefault();
+          submitDraftComment();
+        } else if (e.ctrlKey && e.code === 'Space' && active.id === 'formulaInput') {
+          e.preventDefault();
+          aiGenerateFormula();
         }
         return;
       }
 
-      // Word / Sheets Comment Shortcut: Ctrl + Alt + M / Cmd + Opt + M
-      if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'm' || e.key === 'M')) {
+      // Space on a focused comment card: toggle task strikethrough
+      const focusedCard = active.closest && active.closest('.word-comment-card');
+      if (focusedCard && e.code === 'Space' && !mod && !e.altKey) {
+        e.preventDefault();
+        toggleCommentCompleted(focusedCard.getAttribute('data-comment-id'));
+        const refreshed = document.querySelector(`.word-comment-card[data-comment-id="${focusedCard.getAttribute('data-comment-id')}"]`);
+        if (refreshed) refreshed.focus();
+        return;
+      }
+
+      // Use e.code for letter/digit combos: Alt/Option and Shift change e.key (e.g. Opt+M -> 'µ', Shift+5 -> '%')
+
+      // Insert comment: Ctrl + Alt + M / Cmd + Opt + M
+      if (mod && e.altKey && e.code === 'KeyM') {
         e.preventDefault();
         triggerNewWordComment();
         return;
       }
 
-      // Strikethrough shortcut: Alt + Shift + 5 (or Cmd + Shift + X)
-      if (e.altKey && e.shiftKey && e.key === '5') {
+      // Full screen review layer: Ctrl + Alt + F
+      if (mod && e.altKey && e.code === 'KeyF') {
+        e.preventDefault();
+        toggleFullLayer();
+        return;
+      }
+
+      // Strikethrough: Alt + Shift + 5 (or Cmd + Shift + X)
+      if ((e.altKey && e.shiftKey && e.code === 'Digit5') || (e.metaKey && e.shiftKey && e.code === 'KeyX')) {
         e.preventDefault();
         applyStyleToSelected('strike');
         return;
       }
 
+      // Gemini: Alt + Shift + A (Copilot modal), Alt + Shift + D (Task Digest)
+      if (e.altKey && e.shiftKey && e.code === 'KeyA') {
+        e.preventDefault();
+        openAiPromptModal();
+        document.getElementById('aiPromptInput').focus();
+        return;
+      }
+      if (e.altKey && e.shiftKey && e.code === 'KeyD') {
+        e.preventDefault();
+        aiSummarizeCommentsAndTasks();
+        return;
+      }
+
+      // Formatting: Ctrl + B, Ctrl + I, Ctrl + \ (clear overrides)
+      if (mod && !e.altKey && e.code === 'KeyB') {
+        e.preventDefault();
+        applyStyleToSelected('bold');
+        return;
+      }
+      if (mod && !e.altKey && e.code === 'KeyI') {
+        e.preventDefault();
+        applyStyleToSelected('italic');
+        return;
+      }
+      if (mod && !e.altKey && e.code === 'Backslash') {
+        e.preventDefault();
+        clearSelectedFormatting();
+        return;
+      }
+
       // Cheatsheet shortcut: '?'
-      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+      if (e.key === '?') {
         e.preventDefault();
         openShortcutsCheatSheet();
         return;
       }
 
       // Toggle side margin: Alt + \
-      if (e.altKey && e.key === '\\') {
+      if (e.altKey && e.code === 'Backslash') {
         e.preventDefault();
         toggleTaskbarMode();
         return;
@@ -1419,6 +1492,18 @@
       }
       renderCellValue(selectedCell);
       showNotification(`Applied ${styleType} to ${selectedCell}`);
+    }
+
+    function clearSelectedFormatting() {
+      const data = cellDatabase[selectedCell];
+      if (data) {
+        delete data.bold;
+        delete data.italic;
+        delete data.strike;
+        delete data.bg;
+      }
+      renderCellValue(selectedCell);
+      showNotification(`Cleared formatting on ${selectedCell}`);
     }
 
     function applyColorToSelected(colorHex) {
