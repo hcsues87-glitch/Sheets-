@@ -1,0 +1,1713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OmniSheet 2026 - Word-Style Comment Margin & Collaborative Spreadsheet</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <!-- Tone.js for high-fidelity audio feedback when striking off tasks -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            sheets: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+              800: '#065f46',
+            },
+            word: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#2563eb',
+              600: '#1d4ed8',
+              700: '#1e40af',
+              800: '#1e3a8a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.35);
+      border-radius: 9999px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(100, 116, 139, 0.6);
+    }
+    .cell-focus {
+      outline: 2.5px solid #1d4ed8 !important;
+      outline-offset: -1.5px;
+      background-color: #eff6ff !important;
+      z-index: 10;
+    }
+    .cell-focus::after {
+      content: '';
+      position: absolute;
+      bottom: -3px;
+      right: -3px;
+      width: 6px;
+      height: 6px;
+      background: #1d4ed8;
+      border: 1px solid #ffffff;
+      border-radius: 1px;
+      pointer-events: none;
+    }
+    .cell-has-comment::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 0;
+      height: 0;
+      border-style: solid;
+      border-width: 0 8px 8px 0;
+      border-color: transparent #2563eb transparent transparent;
+      z-index: 5;
+    }
+    .cell-has-task-done::before {
+      border-color: transparent #10b981 transparent transparent !important;
+    }
+    /* Word-style Modern Comment Card States */
+    .word-comment-card {
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .word-comment-card.active-comment {
+      border-color: #2563eb !important;
+      box-shadow: 0 10px 25px -3px rgba(37, 99, 235, 0.18), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      transform: translateX(-3px);
+      background-color: #ffffff;
+    }
+    .word-comment-card.resolved-card {
+      background: #f8fafc;
+      border-color: #e2e8f0;
+      opacity: 0.88;
+    }
+    .task-strikethrough {
+      text-decoration: line-through;
+      text-decoration-color: #059669;
+      text-decoration-thickness: 2px;
+      color: #94a3b8;
+    }
+    .cell-strikethrough-style {
+      text-decoration: line-through !important;
+      text-decoration-color: #059669 !important;
+      text-decoration-thickness: 1.5px !important;
+      color: #94a3b8 !important;
+    }
+    /* Layer Transition Modes */
+    .taskbar-docked {
+      width: 23rem; /* 368px clean Word-like side margin */
+      position: relative;
+      height: 100%;
+    }
+    .taskbar-full-layer {
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 50 !important;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      animation: fadeInScale 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .taskbar-rail {
+      width: 3.75rem !important; /* 60px collapsed margin rail */
+      position: relative;
+      height: 100%;
+    }
+    @keyframes fadeInScale {
+      from { opacity: 0; transform: scale(0.98); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .mention-tag {
+      color: #1d4ed8;
+      background: #eff6ff;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-weight: 600;
+      border: 1px solid #bfdbfe;
+    }
+    .collaborator-cursor-pulse {
+      animation: cursorBlink 1.5s infinite ease-in-out;
+    }
+    @keyframes cursorBlink {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.75; transform: scale(1.05); }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen flex flex-col antialiased">
+
+  <header class="bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-2 flex items-center justify-between shrink-0 shadow-xs z-30">
+    <div class="flex items-center space-x-3.5">
+      <div class="w-9 h-9 bg-gradient-to-tr from-word-700 via-word-600 to-indigo-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-word-600/20 ring-2 ring-word-500/20">
+        <i class="fa-solid fa-table-cells text-base"></i>
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <input id="docTitle" value="2026 Enterprise Strategy & Cross-Functional Deliverables" class="font-bold text-slate-800 text-sm border border-transparent hover:border-slate-300 focus:border-word-600 rounded px-1.5 py-0.5 outline-none transition w-80 truncate bg-transparent"/>
+          <span class="bg-emerald-50 text-emerald-700 text-[11px] font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 border border-emerald-200">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Live Sync Active
+          </span>
+          <span class="bg-gradient-to-r from-purple-50 to-indigo-50 text-indigo-700 text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 border border-indigo-200 shadow-xs">
+            <i class="fa-solid fa-wand-magic-sparkles text-indigo-600 text-[10px]"></i> Gemini 2026
+          </span>
+        </div>
+        <div class="flex items-center space-x-3.5 text-xs text-slate-500 mt-0.5 font-medium">
+          <button class="hover:text-slate-900 transition flex items-center gap-1" onclick="showNotification('Workbook saved to cloud')"><i class="fa-regular fa-floppy-disk text-[11px]"></i> File</button>
+          <button class="hover:text-slate-900 transition" onclick="toggleTaskbarMode()"><i class="fa-solid fa-table-columns text-[11px] mr-0.5"></i> View Margins</button>
+          <button class="hover:text-word-600 transition font-semibold text-word-600 flex items-center gap-1" onclick="triggerNewWordComment()">
+            <i class="fa-regular fa-comment-dots text-[11px]"></i> Insert Comment <kbd class="text-[9px] bg-slate-100 border border-slate-300 px-1 py-0.2 rounded font-mono text-slate-500">Ctrl+Alt+M</kbd>
+          </button>
+          <button class="hover:text-purple-700 transition text-purple-600 font-semibold flex items-center gap-1" onclick="openAiPromptModal()">
+            <i class="fa-solid fa-sparkles text-[11px]"></i> AI Copilot
+          </button>
+          <button class="hover:text-slate-800 transition text-slate-600 font-medium flex items-center gap-1" onclick="openShortcutsCheatSheet()">
+            <i class="fa-solid fa-keyboard text-[11px]"></i> Shortcuts <kbd class="text-[9px] bg-slate-100 border border-slate-300 px-1 py-0.2 rounded font-mono text-slate-500">?</kbd>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-3">
+      <!-- Active Collaborators Avatars Stack -->
+      <div class="flex items-center -space-x-1.5 overflow-hidden" id="collaboratorsPills">
+        <!-- Rendered via JS -->
+      </div>
+
+      <!-- Auto Live Simulation Stream Toggle -->
+      <button id="liveSimToggleBtn" onclick="toggleAutoSimulationStream()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 flex items-center gap-1.5 transition font-semibold">
+        <span class="w-2 h-2 rounded-full bg-slate-400" id="liveSimIndicator"></span>
+        <span id="liveSimBtnText">Live Team Stream: Off</span>
+      </button>
+
+      <!-- One-Click Single Teammate Action -->
+      <button onclick="simulateCollaboratorAction()" title="Simulate a teammate commenting or completing a task" class="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-2.5 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5 transition font-medium">
+        <i class="fa-solid fa-user-plus text-emerald-600 text-[11px]"></i>
+        <span class="hidden md:inline">Simulate Edit</span>
+      </button>
+
+      <!-- Margin Mode Selector (Word-style Side Stack vs Full Layer) -->
+      <div class="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
+        <button id="dockedModeBtn" onclick="setTaskbarMode('docked')" class="px-2.5 py-1 rounded-md font-semibold text-word-700 bg-white shadow-xs flex items-center gap-1.5 transition" title="Neatly stacked in the right margin (does not take over screen)">
+          <i class="fa-solid fa-comments text-word-600 text-[11px]"></i>
+          <span>Margin Stack</span>
+          <span id="openCommentCounterBadge" class="bg-word-600 text-white font-bold text-[10px] px-1.5 py-0.2 rounded-full">3</span>
+        </button>
+        <button id="fullLayerModeBtn" onclick="setTaskbarMode('full')" class="px-2.5 py-1 rounded-md font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1.5 transition" title="Take over full screen layer for deep review">
+          <i class="fa-solid fa-layer-group text-[11px]"></i>
+          <span class="hidden sm:inline">Full Layer</span>
+        </button>
+      </div>
+
+      <button onclick="shareSheetModal()" class="bg-gradient-to-r from-word-600 to-indigo-600 hover:from-word-700 hover:to-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition">
+        <i class="fa-solid fa-user-check text-[11px]"></i>
+        <span>Share</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="bg-white border-b border-slate-200 px-4 py-1.5 flex items-center space-x-2 shrink-0 text-sm">
+    <div class="flex items-center space-x-1 border-r border-slate-200 pr-2">
+      <button onclick="applyStyleToSelected('bold')" class="p-1.5 hover:bg-slate-100 rounded-md text-slate-700 transition" title="Bold (Ctrl+B)"><i class="fa-solid fa-bold text-xs"></i></button>
+      <button onclick="applyStyleToSelected('italic')" class="p-1.5 hover:bg-slate-100 rounded-md text-slate-700 transition" title="Italic (Ctrl+I)"><i class="fa-solid fa-italic text-xs"></i></button>
+      <button onclick="applyStyleToSelected('strike')" class="p-1.5 hover:bg-slate-100 rounded-md text-slate-700 transition" title="Strikethrough Cell Text (Alt+Shift+5)"><i class="fa-solid fa-strikethrough text-xs"></i></button>
+      <button onclick="applyColorToSelected('#dcfce7')" class="p-1.5 hover:bg-slate-100 rounded-md text-emerald-700 transition" title="Highlight Completed (Green)"><i class="fa-solid fa-fill-drip text-xs"></i></button>
+      <button onclick="applyColorToSelected('#fee2e2')" class="p-1.5 hover:bg-slate-100 rounded-md text-rose-700 transition" title="Highlight Blocker (Red)"><i class="fa-solid fa-triangle-exclamation text-xs"></i></button>
+      <button onclick="toggleAudioChimeMute()" id="audioMuteBtn" class="p-1.5 hover:bg-slate-100 rounded-md text-slate-500 hover:text-word-600 transition" title="Audio Chimes Enabled"><i class="fa-solid fa-volume-high text-xs" id="audioMuteIcon"></i></button>
+    </div>
+
+    <!-- Active Cell Badge & Formula Input -->
+    <div class="w-16 text-center font-mono font-bold text-xs text-word-700 bg-word-50 py-1 rounded-md border border-word-200 shadow-xs" id="activeCellLabel">
+      B2
+    </div>
+    <div class="text-slate-400 font-serif italic text-sm select-none px-1">fx</div>
+    <div class="flex-1 relative">
+      <input id="formulaInput" type="text" placeholder="Enter value, text or formula (e.g. =SUM(D2:D5), =AVERAGE(E2:E5))" class="w-full font-mono text-xs px-2.5 py-1 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-word-600 rounded-lg outline-none transition"/>
+    </div>
+
+    <!-- Quick Action Badges -->
+    <div class="flex items-center space-x-1.5 pl-2 border-l border-slate-200">
+      <button onclick="triggerNewWordComment()" class="px-2.5 py-1 text-xs bg-blue-50 hover:bg-blue-100 text-word-700 rounded-md border border-blue-200 font-semibold flex items-center gap-1.5 transition shadow-xs" title="Add a Word-style comment pinned to active cell">
+        <i class="fa-regular fa-comment-dots text-word-600"></i>
+        <span>Add Comment</span>
+      </button>
+      <button onclick="aiGenerateFormula()" class="px-2.5 py-1 text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-md border border-purple-200 font-semibold flex items-center gap-1.5 transition shadow-xs" title="Ask Gemini to generate formula based on context">
+        <i class="fa-solid fa-wand-magic-sparkles text-[11px] text-purple-600"></i>
+        <span>AI Formula</span>
+      </button>
+      <button onclick="aiSummarizeCommentsAndTasks()" class="px-2.5 py-1 text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-md border border-indigo-200 font-semibold flex items-center gap-1.5 transition shadow-xs" title="Auto-digest open tasks & blockers">
+        <i class="fa-solid fa-list-check text-[11px] text-indigo-600"></i>
+        <span>Task Digest</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="flex-1 flex overflow-hidden relative">
+
+    <!-- SPREADSHEET CANVAS -->
+    <main class="flex-1 flex flex-col bg-white overflow-hidden relative" id="sheetContainer">
+      <div id="gridScrollArea" class="flex-1 overflow-auto custom-scroll relative">
+        <table id="sheetTable" class="border-collapse table-fixed w-max text-xs">
+          <!-- Colgroup, headers, and rows dynamically populated by JS -->
+        </table>
+      </div>
+
+      <!-- Footer Status Bar -->
+      <footer class="h-8 bg-slate-50 border-t border-slate-300 flex items-center justify-between px-3 text-xs text-slate-600 select-none shrink-0">
+        <div class="flex items-center space-x-1">
+          <button class="p-1 hover:bg-slate-200 rounded text-slate-600" title="Add sheet"><i class="fa-solid fa-plus text-xs"></i></button>
+          <div class="flex items-center space-x-1 ml-2">
+            <span class="px-3 py-1 bg-white border-t-2 border-word-600 font-bold text-word-700 shadow-xs rounded-t flex items-center gap-1.5">
+              <span>Strategy & Deliverables</span>
+              <i class="fa-solid fa-caret-down text-[10px] text-slate-400"></i>
+            </span>
+            <span class="px-3 py-1 hover:bg-slate-200 rounded-t cursor-pointer transition font-medium">Sprint Backlog</span>
+            <span class="px-3 py-1 hover:bg-slate-200 rounded-t cursor-pointer transition font-medium">SOC2 Milestones</span>
+          </div>
+        </div>
+        <div class="flex items-center space-x-4 text-slate-500 text-[11px]">
+          <span id="quickStatsSelection" class="font-semibold text-slate-700">Selected: B2</span>
+          <span class="hidden md:inline" id="quickStatsSum">SUM: $310,000</span>
+          <span class="hidden md:inline" id="quickStatsAvg">AVG: $77,500</span>
+          <span class="text-emerald-700 font-semibold flex items-center gap-1"><i class="fa-solid fa-shield-check text-[10px]"></i> Enterprise 2026 Verified</span>
+        </div>
+      </footer>
+    </main>
+
+    <aside id="teamTaskbar" class="taskbar-docked bg-slate-50/90 border-l border-slate-200 flex flex-col shadow-sm z-20 transition-all duration-200 shrink-0">
+
+      <!-- Collapsed Rail View (When in 'rail' mode) -->
+      <div id="railViewContent" class="hidden h-full flex flex-col items-center py-4 space-y-4 bg-slate-50">
+        <button onclick="setTaskbarMode('docked')" class="w-10 h-10 rounded-xl bg-blue-100 hover:bg-blue-200 text-word-700 flex items-center justify-center transition shadow-xs" title="Expand Word-Style Comment Margin">
+          <i class="fa-solid fa-angles-left text-sm"></i>
+        </button>
+        <div class="h-px w-6 bg-slate-200"></div>
+        <button onclick="setTaskbarMode('docked')" class="relative p-2 text-slate-600 hover:text-word-600 transition" title="Open Stacked Comments">
+          <i class="fa-regular fa-comment-dots text-xl"></i>
+          <span id="railTaskCount" class="absolute -top-1 -right-1 bg-word-600 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow-xs">3</span>
+        </button>
+        <button onclick="setTaskbarMode('full')" class="p-2 text-slate-500 hover:text-purple-600 transition" title="Toggle Full Review Layer">
+          <i class="fa-solid fa-layer-group text-lg"></i>
+        </button>
+      </div>
+
+      <!-- Main Stack Content -->
+      <div id="standardTaskbarContent" class="flex-1 flex flex-col h-full overflow-hidden">
+
+        <!-- Word Margin Header -->
+        <div class="p-3 border-b border-slate-200 bg-white flex items-center justify-between shrink-0 shadow-xs">
+          <div class="flex items-center space-x-2">
+            <div class="w-7 h-7 rounded-lg bg-gradient-to-tr from-word-600 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+              <i class="fa-regular fa-comments"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-1.5">
+                <h2 class="font-bold text-slate-800 text-xs">Comments & Tasks</h2>
+                <span id="layerBadge" class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-mono font-semibold">Word Margin</span>
+              </div>
+              <p class="text-[10px] text-slate-400">Neatly stacked alongside cell coordinates</p>
+            </div>
+          </div>
+
+          <div class="flex items-center space-x-1">
+            <!-- New Comment Action -->
+            <button onclick="triggerNewWordComment()" class="p-1.5 rounded-lg hover:bg-blue-50 text-word-600 text-xs transition font-semibold" title="New comment on active cell">
+              <i class="fa-solid fa-plus text-xs"></i>
+            </button>
+            <!-- Full Layer Toggle -->
+            <button id="expandLayerBtn" onclick="toggleFullLayer()" class="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-purple-700 text-xs transition" title="Toggle Full Screen Layer (Overlay Mode)">
+              <i id="layerToggleIcon" class="fa-solid fa-up-right-and-down-left-from-center text-xs"></i>
+            </button>
+            <!-- Minimize to Rail -->
+            <button onclick="setTaskbarMode('rail')" class="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition" title="Minimize Margin to Rail">
+              <i class="fa-solid fa-angles-right text-xs"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter Segmented Control (All / Unresolved / Completed & Struck Through) -->
+        <div class="px-3 py-2 border-b border-slate-200 bg-white/70 flex items-center justify-between text-xs shrink-0">
+          <div class="flex items-center bg-slate-200/70 p-0.5 rounded-lg text-[11px]">
+            <button id="filterTabAll" onclick="setCommentFilter('all')" class="px-2.5 py-0.5 rounded-md font-bold text-slate-800 bg-white shadow-xs">
+              All (<span id="countAll">3</span>)
+            </button>
+            <button id="filterTabPending" onclick="setCommentFilter('pending')" class="px-2.5 py-0.5 rounded-md text-slate-500 hover:text-slate-800 transition font-medium">
+              Open (<span id="countPending">2</span>)
+            </button>
+            <button id="filterTabCompleted" onclick="setCommentFilter('completed')" class="px-2.5 py-0.5 rounded-md text-slate-500 hover:text-slate-800 transition font-medium">
+              Struck (<span id="countCompleted">1</span>)
+            </button>
+          </div>
+
+          <button onclick="openShortcutsCheatSheet()" class="text-[11px] text-word-600 hover:text-word-700 flex items-center gap-1 font-semibold" title="View keyboard shortcuts">
+            <i class="fa-regular fa-circle-question"></i> Help
+          </button>
+        </div>
+
+        <!-- Word-Style Floating Draft Box (Opens smoothly when user clicks 'Add Comment') -->
+        <div id="newDraftCard" class="hidden p-3 mx-3 mt-3 bg-white border-2 border-word-500 rounded-2xl shadow-lg space-y-2 animate-in fade-in duration-150 shrink-0">
+          <div class="flex items-center justify-between text-xs">
+            <div class="flex items-center space-x-1.5">
+              <div class="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-[9px] shadow-xs">AR</div>
+              <span class="font-bold text-slate-800 text-[11px]">Alex Rivera</span>
+              <span class="text-[10px] text-slate-400 font-mono bg-blue-50 text-word-700 px-1.5 py-0.5 rounded-md font-bold border border-blue-100">Cell <span id="draftTargetCell">B2</span></span>
+            </div>
+            <button onclick="closeDraftCard()" class="text-slate-400 hover:text-slate-600 text-xs"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+
+          <textarea id="draftCommentText" rows="2" placeholder="Type a comment or @mention a teammate..." class="w-full text-xs p-2 rounded-xl border border-slate-200 focus:border-word-600 focus:ring-0 outline-none leading-relaxed resize-none font-sans"></textarea>
+
+          <div class="flex items-center justify-between pt-1">
+            <label class="flex items-center space-x-1.5 text-[11px] text-slate-600 cursor-pointer select-none">
+              <input type="checkbox" id="draftIsTaskCheckbox" checked class="rounded text-word-600 focus:ring-0 w-3.5 h-3.5"/>
+              <span class="font-medium">Track as Strikethrough Task</span>
+            </label>
+
+            <div class="flex items-center space-x-1.5">
+              <button onclick="aiEnhanceCommentText()" class="text-[10px] text-purple-700 hover:text-purple-900 font-semibold px-2 py-1 rounded-md hover:bg-purple-50 transition border border-purple-200" title="Gemini AI: Polish clarity and add deadline">
+                <i class="fa-solid fa-wand-magic-sparkles text-purple-600"></i> AI Refine
+              </button>
+              <button onclick="submitDraftComment()" class="bg-word-600 hover:bg-word-700 text-white text-[11px] font-bold px-3 py-1 rounded-lg shadow-sm transition flex items-center gap-1">
+                <span>Post</span> <i class="fa-solid fa-arrow-up text-[9px]"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Digest Banner (If generated) -->
+        <div id="aiDigestBox" class="hidden mx-3 mt-2 p-3 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 border border-indigo-200 rounded-2xl text-xs text-slate-700 relative shadow-sm shrink-0">
+          <button onclick="document.getElementById('aiDigestBox').classList.add('hidden')" class="absolute top-2.5 right-2.5 text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-xs"></i></button>
+          <div class="flex items-center gap-1.5 font-bold text-indigo-950 text-[11px] mb-1">
+            <i class="fa-solid fa-wand-magic-sparkles text-indigo-600"></i>
+            <span>Gemini 2026 Executive Task Digest</span>
+          </div>
+          <p id="aiDigestContent" class="text-[11px] leading-relaxed text-slate-700"></p>
+        </div>
+
+        <!-- Scrollable Vertical Comment Stack (Word Modern Comments Layout) -->
+        <div id="commentsStackList" class="flex-1 overflow-y-auto custom-scroll p-3 space-y-3">
+          <!-- Dynamically populated comment cards -->
+        </div>
+
+        <!-- Margin Footer -->
+        <div class="p-2.5 bg-white border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-500 shrink-0">
+          <span class="flex items-center gap-1.5 text-[10px] font-medium text-emerald-700">
+            <i class="fa-solid fa-shield-halved text-emerald-600"></i>
+            <span>Word margin active</span>
+          </span>
+          <button onclick="archiveCompletedComments()" class="text-slate-400 hover:text-rose-600 text-[11px] font-semibold transition">
+            Archive Struck Tasks
+          </button>
+        </div>
+
+      </div>
+    </aside>
+  </div>
+
+  <div id="shortcutsModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-xl w-full border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div class="p-4 bg-gradient-to-r from-word-700 via-word-600 to-indigo-700 text-white flex items-center justify-between">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-sm font-bold">
+            <i class="fa-solid fa-keyboard"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-sm">OmniSheet 2026 Keyboard Shortcuts</h3>
+            <p class="text-[11px] text-blue-100">Word-style comments, strikethrough tasks & Gemini Copilot</p>
+          </div>
+        </div>
+        <button onclick="closeShortcutsCheatSheet()" class="text-white/80 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="p-5 space-y-4 max-h-[75vh] overflow-y-auto custom-scroll text-xs">
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="font-bold text-slate-700 text-xs flex items-center gap-1.5">
+              <i class="fa-solid fa-copy text-word-600"></i> Quick-Copy Code Block (For Slack & Team Wikis)
+            </span>
+            <button onclick="copyAsciiShortcuts()" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-[11px] font-semibold text-slate-700 transition">
+              <i class="fa-regular fa-clipboard mr-1"></i>Copy Text
+            </button>
+          </div>
+          <pre id="asciiShortcutBlock" class="p-3 bg-slate-900 text-emerald-400 font-mono text-[11px] rounded-2xl overflow-x-auto leading-relaxed select-all">
+========================================================================
+         OMNISHEET 2026: COLLABORATION & STRIKETHROUGH SHORTCUTS
+========================================================================
+[ COMMENTS & MARGIN STACK ]
+  Ctrl + Alt + M / Cmd + Opt + M  --> Insert Word-style comment on cell
+  Ctrl + Enter / Cmd + Enter      --> Post comment / reply immediately
+  Alt + \                         --> Toggle Side Margin (Stack &lt;-&gt; Rail)
+  Ctrl + Alt + F                  --> Toggle Full Screen Review Layer
+  Esc                             --> Close comment draft / return to grid
+
+[ TASK STRIKETHROUGH & FORMATTING ]
+  Alt + Shift + 5                 --> Apply Strikethrough to cell text
+  Space (on comment card)         --> Mark task completed & strike off text
+  Ctrl + B / Cmd + B              --> Toggle Bold
+  Ctrl + \                        --> Clear cell formatting overrides
+
+[ GEMINI 2026 AI COPILOT ]
+  Alt + Shift + A                 --> Open AI Copilot prompt modal
+  Alt + Shift + D                 --> Instant AI Executive Task Digest
+  Ctrl + Space (in fx bar)        --> Generate context formula
+========================================================================</pre>
+        </div>
+
+        <div class="space-y-2">
+          <div class="font-bold text-slate-700 text-xs">Collaboration & Task Action Reference</div>
+          <div class="border border-slate-200 rounded-2xl overflow-hidden">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-[11px]">
+                <tr>
+                  <th class="p-2 border-r border-slate-200">Action</th>
+                  <th class="p-2 border-r border-slate-200">Windows / ChromeOS</th>
+                  <th class="p-2">macOS</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 text-[11px]">
+                <tr>
+                  <td class="p-2 font-medium border-r border-slate-200">Insert Cell Comment</td>
+                  <td class="p-2 font-mono text-word-600 border-r border-slate-200">Ctrl + Alt + M</td>
+                  <td class="p-2 font-mono text-word-600">Cmd + Option + M</td>
+                </tr>
+                <tr>
+                  <td class="p-2 font-medium border-r border-slate-200">Strikethrough Cell Text</td>
+                  <td class="p-2 font-mono text-word-600 border-r border-slate-200">Alt + Shift + 5</td>
+                  <td class="p-2 font-mono text-word-600">Cmd + Shift + X</td>
+                </tr>
+                <tr>
+                  <td class="p-2 font-medium border-r border-slate-200">Post Comment / Reply</td>
+                  <td class="p-2 font-mono text-word-600 border-r border-slate-200">Ctrl + Enter</td>
+                  <td class="p-2 font-mono text-word-600">Cmd + Enter</td>
+                </tr>
+                <tr>
+                  <td class="p-2 font-medium border-r border-slate-200">Toggle Side Margin</td>
+                  <td class="p-2 font-mono text-word-600 border-r border-slate-200">Alt + \</td>
+                  <td class="p-2 font-mono text-word-600">Option + \</td>
+                </tr>
+                <tr>
+                  <td class="p-2 font-medium border-r border-slate-200">Gemini Task Digest</td>
+                  <td class="p-2 font-mono text-word-600 border-r border-slate-200">Alt + Shift + D</td>
+                  <td class="p-2 font-mono text-word-600">Option + Shift + D</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-3.5 bg-slate-50 border-t border-slate-200 flex justify-end">
+        <button onclick="closeShortcutsCheatSheet()" class="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold rounded-xl transition">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="aiModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full border border-purple-100 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div class="p-4 bg-gradient-to-r from-purple-600 via-indigo-600 to-word-600 text-white flex items-center justify-between">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center">
+            <i class="fa-solid fa-sparkles text-yellow-300"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-sm">Gemini 2026 Spreadsheet Assistant</h3>
+            <p class="text-[11px] text-purple-100">Spreadsheet reasoning & comment action resolution</p>
+          </div>
+        </div>
+        <button onclick="closeAiModal()" class="text-white/80 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="p-5 space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">Ask Gemini for intelligence, formulas, or task audit:</label>
+          <textarea id="aiPromptInput" rows="3" class="w-full text-xs p-3 rounded-2xl border border-slate-300 focus:border-purple-600 focus:ring-1 focus:ring-purple-600 outline-none leading-relaxed font-sans" placeholder="e.g., 'Summarize open tasks, find who is blocked, and calculate projected net ROI'"></textarea>
+        </div>
+
+        <div class="flex flex-wrap gap-1.5">
+          <span class="text-[11px] text-slate-400 font-semibold py-1">Presets:</span>
+          <button onclick="setAiPromptPreset('Audit uncompleted comments and highlight bottlenecks in team deliverables')" class="text-[11px] bg-purple-50 text-purple-700 hover:bg-purple-100 px-2.5 py-1 rounded-full border border-purple-200 transition font-medium">Audit Blockers</button>
+          <button onclick="setAiPromptPreset('Calculate profit margin formula for column E based on Revenue C and Expense D')" class="text-[11px] bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-2.5 py-1 rounded-full border border-indigo-200 transition font-medium">Generate Formula</button>
+          <button onclick="setAiPromptPreset('Draft a 3-point status report of this sheet for executive stakeholders')" class="text-[11px] bg-emerald-50 text-emerald-800 hover:bg-emerald-100 px-2.5 py-1 rounded-full border border-emerald-200 transition font-medium">Exec Summary</button>
+        </div>
+
+        <div id="aiOutputContainer" class="hidden bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-xs text-slate-700 space-y-2 max-h-48 overflow-y-auto custom-scroll">
+          <div class="flex items-center justify-between text-[11px] font-bold text-purple-700">
+            <span class="flex items-center gap-1.5"><i class="fa-solid fa-sparkles"></i> Gemini Response</span>
+            <span id="aiExecutionTime" class="text-slate-400 font-normal">Generated in 0.3s</span>
+          </div>
+          <div id="aiOutputContent" class="leading-relaxed whitespace-pre-line font-mono text-[11px] text-slate-800"></div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+          <div class="text-[11px] text-slate-400 flex items-center gap-1.5 font-medium">
+            <i class="fa-solid fa-shield-halved text-emerald-600"></i> Enterprise Data Shield Active
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="closeAiModal()" class="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-xl transition font-semibold">Cancel</button>
+            <button id="runAiBtn" onclick="executeGeminiCall()" class="px-4 py-1.5 text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl font-bold shadow-md transition flex items-center gap-1.5">
+              <span>Execute with Gemini</span>
+              <i class="fa-solid fa-arrow-right text-[10px]"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="shareModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-3xl shadow-xl max-w-md w-full p-5 space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+          <i class="fa-solid fa-user-group text-word-600"></i> Share with Large Team
+        </h3>
+        <button onclick="document.getElementById('shareModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">Add colleagues or distribution groups</label>
+        <div class="flex gap-2">
+          <input id="inviteEmailInput" type="text" placeholder="engineering-leads@enterprise.com" class="flex-1 text-xs border border-slate-300 rounded-xl px-3 py-2 outline-none focus:border-word-600"/>
+          <button onclick="addTeammateFromInput()" class="bg-word-600 hover:bg-word-700 text-white text-xs px-3 py-2 rounded-xl font-bold transition">Invite</button>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">Active Workspace Collaborators (5)</div>
+        <div class="space-y-1.5 max-h-48 overflow-y-auto custom-scroll pr-1" id="shareUsersList">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+      <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
+        <button onclick="copyShareLink()" class="text-xs text-word-600 hover:text-word-700 font-bold flex items-center gap-1.5">
+          <i class="fa-solid fa-link"></i> Copy Link
+        </button>
+        <button onclick="document.getElementById('shareModal').classList.add('hidden')" class="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold transition">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastNotification" class="fixed bottom-5 left-6 bg-slate-900/90 text-white px-4 py-2.5 rounded-2xl shadow-2xl text-xs flex items-center space-x-2 z-50 transform translate-y-20 opacity-0 transition-all duration-300 ease-out pointer-events-none backdrop-blur-md border border-slate-700">
+    <i class="fa-solid fa-circle-check text-emerald-400 text-sm" id="toastIcon"></i>
+    <span id="toastMsg" class="font-medium">Changes saved</span>
+  </div>
+
+  <script>
+    const NUM_ROWS = 26;
+    const NUM_COLS = 12; // Columns A through L
+    const COL_NAMES = Array.from({length: NUM_COLS}, (_, i) => String.fromCharCode(65 + i));
+
+    // Audio chime feedback flag & Tone.js synth
+    let audioChimesEnabled = true;
+    let chimeSynth = null;
+
+    function playChime(type = 'strike') {
+      if (!audioChimesEnabled) return;
+      try {
+        if (!chimeSynth) {
+          chimeSynth = new Tone.PolySynth(Tone.Synth).toDestination();
+          chimeSynth.volume.value = -12;
+        }
+        Tone.start();
+        if (type === 'strike') {
+          chimeSynth.triggerAttackRelease(["E5", "G#5", "B5"], "16n");
+        } else if (type === 'add') {
+          chimeSynth.triggerAttackRelease(["C5", "F5"], "16n");
+        } else if (type === 'undo') {
+          chimeSynth.triggerAttackRelease(["B4", "G4"], "16n");
+        }
+      } catch (e) {
+        // Audio context may be restricted before user gesture
+      }
+    }
+
+    function toggleAudioChimeMute() {
+      audioChimesEnabled = !audioChimesEnabled;
+      const icon = document.getElementById('audioMuteIcon');
+      const btn = document.getElementById('audioMuteBtn');
+      if (audioChimesEnabled) {
+        icon.className = 'fa-solid fa-volume-high text-xs';
+        btn.classList.remove('text-rose-500');
+        showNotification('Audio chimes enabled');
+      } else {
+        icon.className = 'fa-solid fa-volume-xmark text-xs';
+        btn.classList.add('text-rose-500');
+        showNotification('Audio chimes muted');
+      }
+    }
+
+    // Teammates in enterprise workbook
+    const COLLABORATORS = [
+      { id: 'u1', name: 'Alex Rivera (You)', avatar: 'AR', color: '#0b8043', bg: 'bg-emerald-600', ring: 'ring-emerald-400', role: 'Owner' },
+      { id: 'u2', name: 'Sarah Chen', avatar: 'SC', color: '#1d4ed8', bg: 'bg-blue-600', ring: 'ring-blue-400', role: 'Finance Lead' },
+      { id: 'u3', name: 'Liam Patel', avatar: 'LP', color: '#7c3aed', bg: 'bg-purple-600', ring: 'ring-purple-400', role: 'Tech Lead' },
+      { id: 'u4', name: 'Elena Rostova', avatar: 'ER', color: '#d97706', bg: 'bg-amber-600', ring: 'ring-amber-400', role: 'Marketing VP' },
+      { id: 'u5', name: 'Marcus Brody', avatar: 'MB', color: '#db2777', bg: 'bg-pink-600', ring: 'ring-pink-400', role: 'Operations' }
+    ];
+
+    // Initial Enterprise Strategic Spreadsheet Data
+    const initialCellData = {
+      'A1': { val: 'Strategic Initiative', bold: true, bg: '#f1f5f9' },
+      'B1': { val: 'Owner', bold: true, bg: '#f1f5f9' },
+      'C1': { val: 'Timeline', bold: true, bg: '#f1f5f9' },
+      'D1': { val: 'Budget ($k)', bold: true, bg: '#f1f5f9' },
+      'E1': { val: 'Projected ARR ($k)', bold: true, bg: '#f1f5f9' },
+      'F1': { val: 'Status', bold: true, bg: '#f1f5f9' },
+      'G1': { val: 'Deliverable Notes & Requirements', bold: true, bg: '#f1f5f9' },
+
+      'A2': { val: 'AI Copilot Integration' },
+      'B2': { val: 'Liam Patel' },
+      'C2': { val: 'Q1-2026' },
+      'D2': { val: '120' },
+      'E2': { val: '450' },
+      'F2': { val: 'In Progress' },
+      'G2': { val: 'Review latency SLAs with Google Cloud' },
+
+      'A3': { val: 'Enterprise SOC2 Compliance' },
+      'B3': { val: 'Sarah Chen' },
+      'C3': { val: 'Q2-2026' },
+      'D3': { val: '45' },
+      'E3': { val: '180' },
+      'F3': { val: 'Needs Audit' },
+      'G3': { val: 'Penetration testing report pending' },
+
+      'A4': { val: 'Global Brand Refresh & Video' },
+      'B4': { val: 'Elena Rostova' },
+      'C4': { val: 'Q2-2026' },
+      'D4': { val: '80' },
+      'E4': { val: '210' },
+      'F4': { val: 'Drafting' },
+      'G4': { val: 'Agency RFP closing this Friday' },
+
+      'A5': { val: 'Self-Serve Workspace Migration' },
+      'B5': { val: 'Marcus Brody' },
+      'C5': { val: 'Q3-2026' },
+      'D5': { val: '65' },
+      'E5': { val: '310' },
+      'F5': { val: 'Approved' },
+      'G5': { val: 'Automated data migration pipelines ready' },
+
+      'A6': { val: 'Total Strategy Investment' },
+      'B6': { val: 'All Streams' },
+      'C6': { val: 'FY-2026' },
+      'D6': { val: '=SUM(D2:D5)', bold: true },
+      'E6': { val: '=SUM(E2:E5)', bold: true },
+      'F6': { val: 'Active', bold: true },
+      'G6': { val: 'Positive operating margin confirmed' }
+    };
+
+    // Word-Style Modern Comment Stack Items
+    let comments = [
+      {
+        id: 'c1',
+        cell: 'D2',
+        cellLabel: 'Budget: AI Copilot',
+        author: 'Sarah Chen',
+        authorInitials: 'SC',
+        authorColor: '#1d4ed8',
+        text: '@Liam: Can we cap cloud credits at $110k? Need approval before procurement.',
+        completed: false,
+        completedBy: null,
+        timestamp: '12m ago',
+        replies: [
+          { author: 'Liam Patel', text: 'Negotiating with Google account team today.', timestamp: '8m ago' }
+        ]
+      },
+      {
+        id: 'c2',
+        cell: 'G3',
+        cellLabel: 'Deliverable: SOC2 Report',
+        author: 'Elena Rostova',
+        authorInitials: 'ER',
+        authorColor: '#d97706',
+        text: 'Attach the final executive summary PDF from third-party audit firm.',
+        completed: true,
+        completedBy: 'Alex Rivera',
+        timestamp: '2h ago',
+        replies: []
+      },
+      {
+        id: 'c3',
+        cell: 'A4',
+        cellLabel: 'Initiative: Brand Refresh',
+        author: 'Marcus Brody',
+        authorInitials: 'MB',
+        authorColor: '#db2777',
+        text: 'Ensure French & German localizations are factored into the Q2 launch.',
+        completed: false,
+        completedBy: null,
+        timestamp: 'Just now',
+        replies: []
+      }
+    ];
+
+    // State Variables
+    let selectedCell = 'B2';
+    let currentFilter = 'all'; // 'all' | 'pending' | 'completed'
+    let isEditingCell = false;
+    let cellDatabase = { ...initialCellData };
+    let taskbarMode = 'docked'; // 'docked' | 'full' | 'rail'
+    let liveSimulationInterval = null;
+
+    // Remote cursors for large team presence
+    let teammatePositions = {
+      'Sarah Chen': 'D2',
+      'Liam Patel': 'E2',
+      'Marcus Brody': 'A5'
+    };
+
+    window.onload = function() {
+      renderSheetGrid();
+      renderCollaboratorPills();
+      renderWordCommentStack();
+      selectCell('B2');
+      updateQuickStats();
+
+      // Listen for global shortcuts
+      document.addEventListener('keydown', handleGlobalKeydown);
+
+      // Formula bar bindings
+      const formulaEl = document.getElementById('formulaInput');
+      formulaEl.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          cellDatabase[selectedCell] = cellDatabase[selectedCell] || {};
+          cellDatabase[selectedCell].val = this.value;
+          renderCellValue(selectedCell);
+          this.blur();
+          playChime('add');
+          showNotification(`Updated ${selectedCell}`);
+          updateQuickStats();
+        }
+      });
+    };
+
+    function renderSheetGrid() {
+      const table = document.getElementById('sheetTable');
+      table.innerHTML = '';
+
+      // Create Header Row
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      headerRow.className = 'bg-slate-100 text-slate-600 font-bold border-b border-slate-300';
+
+      const corner = document.createElement('th');
+      corner.className = 'w-10 h-7 border-r border-b border-slate-300 text-center sticky top-0 left-0 bg-slate-100 z-20 text-[10px]';
+      corner.innerText = '';
+      headerRow.appendChild(corner);
+
+      COL_NAMES.forEach(col => {
+        const th = document.createElement('th');
+        th.className = 'h-7 border-r border-b border-slate-300 text-center sticky top-0 bg-slate-100 z-10 text-[11px] font-bold tracking-wide';
+        th.style.width = (col === 'A' || col === 'G') ? '220px' : (col === 'B' ? '140px' : '110px');
+        th.innerText = col;
+        headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+
+      // Create Body Rows
+      const tbody = document.createElement('tbody');
+      for (let r = 1; r <= NUM_ROWS; r++) {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-slate-200 hover:bg-slate-50/70 transition-colors';
+
+        const rowHeader = document.createElement('th');
+        rowHeader.className = 'h-7 border-r border-slate-300 text-center bg-slate-50 text-[10px] text-slate-500 font-mono font-bold sticky left-0 z-10 select-none';
+        rowHeader.innerText = r;
+        tr.appendChild(rowHeader);
+
+        for (let c = 0; c < NUM_COLS; c++) {
+          const colLetter = COL_NAMES[c];
+          const cellId = `${colLetter}${r}`;
+          const td = document.createElement('td');
+          td.id = `cell-${cellId}`;
+          td.className = 'h-7 border-r border-slate-200 px-2 py-1 text-xs truncate relative cursor-cell transition-all font-sans';
+          td.setAttribute('data-cell-id', cellId);
+
+          td.onclick = () => selectCell(cellId);
+          td.ondblclick = () => enterCellEditMode(cellId);
+
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+
+      refreshAllCellDisplays();
+    }
+
+    function evaluateCellDisplay(cellId) {
+      const data = cellDatabase[cellId];
+      if (!data || data.val === undefined || data.val === null) return '';
+      let val = String(data.val);
+
+      if (val.startsWith('=')) {
+        const sumMatch = val.match(/=SUM\(([A-Z])(\d+):([A-Z])(\d+)\)/i);
+        if (sumMatch) {
+          const col = sumMatch[1].toUpperCase();
+          const startR = parseInt(sumMatch[2]);
+          const endR = parseInt(sumMatch[4]);
+          let total = 0;
+          for (let rowIdx = startR; rowIdx <= endR; rowIdx++) {
+            const refId = `${col}${rowIdx}`;
+            const refVal = parseFloat(cellDatabase[refId]?.val) || 0;
+            total += refVal;
+          }
+          return '$' + total.toLocaleString();
+        }
+        const avgMatch = val.match(/=AVERAGE\(([A-Z])(\d+):([A-Z])(\d+)\)/i);
+        if (avgMatch) {
+          const col = avgMatch[1].toUpperCase();
+          const startR = parseInt(avgMatch[2]);
+          const endR = parseInt(avgMatch[4]);
+          let total = 0, count = 0;
+          for (let rowIdx = startR; rowIdx <= endR; rowIdx++) {
+            const refVal = parseFloat(cellDatabase[`${col}${rowIdx}`]?.val) || 0;
+            total += refVal;
+            count++;
+          }
+          return '$' + (count > 0 ? Math.round(total / count) : 0).toLocaleString();
+        }
+      }
+
+      if ((cellId.startsWith('D') || cellId.startsWith('E')) && !isNaN(val) && val !== '') {
+        return '$' + Number(val).toLocaleString();
+      }
+
+      return val;
+    }
+
+    function renderCellValue(cellId) {
+      const td = document.getElementById(`cell-${cellId}`);
+      if (!td) return;
+
+      const data = cellDatabase[cellId] || {};
+      const displayVal = evaluateCellDisplay(cellId);
+      td.innerText = displayVal;
+
+      td.style.fontWeight = data.bold ? '700' : 'normal';
+      td.style.fontStyle = data.italic ? 'italic' : 'normal';
+      td.style.backgroundColor = data.bg || '';
+
+      // Check linked comment status for automatic cell strikethrough sync
+      const cellComments = comments.filter(c => c.cell === cellId);
+      const isTaskStruck = cellComments.length > 0 && cellComments.some(c => c.completed);
+
+      if (data.strike || isTaskStruck) {
+        td.classList.add('cell-strikethrough-style');
+      } else {
+        td.classList.remove('cell-strikethrough-style');
+      }
+
+      td.classList.remove('cell-has-comment', 'cell-has-task-done');
+      if (cellComments.length > 0) {
+        const allDone = cellComments.every(c => c.completed);
+        td.classList.add('cell-has-comment');
+        if (allDone) {
+          td.classList.add('cell-has-task-done');
+        }
+      }
+
+      renderTeammateBadgesOnCell(cellId, td);
+    }
+
+    function refreshAllCellDisplays() {
+      for (let r = 1; r <= NUM_ROWS; r++) {
+        for (let c = 0; c < NUM_COLS; c++) {
+          const cellId = `${COL_NAMES[c]}${r}`;
+          renderCellValue(cellId);
+        }
+      }
+    }
+
+    function selectCell(cellId) {
+      if (selectedCell) {
+        const prev = document.getElementById(`cell-${selectedCell}`);
+        if (prev) prev.classList.remove('cell-focus');
+      }
+
+      selectedCell = cellId;
+      const current = document.getElementById(`cell-${cellId}`);
+      if (current) current.classList.add('cell-focus');
+
+      document.getElementById('activeCellLabel').innerText = cellId;
+      document.getElementById('formulaInput').value = cellDatabase[cellId]?.val ?? '';
+      document.getElementById('draftTargetCell').innerText = cellId;
+
+      highlightMatchingWordComment(cellId);
+      updateQuickStats();
+    }
+
+    function highlightMatchingWordComment(cellId) {
+      document.querySelectorAll('.word-comment-card').forEach(card => {
+        card.classList.remove('active-comment');
+      });
+
+      const targetCard = document.querySelector(`.word-comment-card[data-cell="${cellId}"]`);
+      if (targetCard) {
+        targetCard.classList.add('active-comment');
+        targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+
+    function enterCellEditMode(cellId) {
+      const td = document.getElementById(`cell-${cellId}`);
+      if (!td) return;
+      isEditingCell = true;
+
+      const currentVal = cellDatabase[cellId]?.val ?? '';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = currentVal;
+      input.className = 'w-full h-full bg-white text-xs px-1 border-none outline-none font-sans font-medium';
+      td.innerHTML = '';
+      td.appendChild(input);
+      input.focus();
+
+      const commit = () => {
+        if (!isEditingCell) return;
+        isEditingCell = false;
+        cellDatabase[cellId] = cellDatabase[cellId] || {};
+        cellDatabase[cellId].val = input.value;
+        renderCellValue(cellId);
+        document.getElementById('formulaInput').value = input.value;
+        playChime('add');
+        updateQuickStats();
+      };
+
+      input.onblur = commit;
+      input.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+          commit();
+          const col = cellId.charAt(0);
+          const row = parseInt(cellId.slice(1));
+          if (row < NUM_ROWS) selectCell(`${col}${row + 1}`);
+        } else if (e.key === 'Escape') {
+          isEditingCell = false;
+          renderCellValue(cellId);
+        }
+      };
+    }
+
+    function renderWordCommentStack() {
+      const container = document.getElementById('commentsStackList');
+      container.innerHTML = '';
+
+      const totalAll = comments.length;
+      const totalCompleted = comments.filter(c => c.completed).length;
+      const totalPending = totalAll - totalCompleted;
+
+      document.getElementById('countAll').innerText = totalAll;
+      document.getElementById('countPending').innerText = totalPending;
+      document.getElementById('countCompleted').innerText = totalCompleted;
+      document.getElementById('openCommentCounterBadge').innerText = totalPending;
+
+      let visible = comments;
+      if (currentFilter === 'pending') {
+        visible = comments.filter(c => !c.completed);
+      } else if (currentFilter === 'completed') {
+        visible = comments.filter(c => c.completed);
+      }
+
+      if (visible.length === 0) {
+        container.innerHTML = `
+          <div class="h-56 flex flex-col items-center justify-center text-slate-400 text-center p-4">
+            <div class="w-12 h-12 rounded-2xl bg-blue-50 text-word-600 flex items-center justify-center mb-2.5 shadow-xs">
+              <i class="fa-regular fa-comment-dots text-xl"></i>
+            </div>
+            <p class="text-xs font-bold text-slate-700">No ${currentFilter === 'all' ? '' : currentFilter} comments</p>
+            <p class="text-[11px] text-slate-400 mt-1">Select any cell and press <kbd class="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-[10px] font-bold">Ctrl+Alt+M</kbd></p>
+          </div>
+        `;
+        return;
+      }
+
+      visible.forEach(comment => {
+        const isDone = comment.completed;
+        const isActive = comment.cell === selectedCell;
+
+        const card = document.createElement('div');
+        card.setAttribute('data-comment-id', comment.id);
+        card.setAttribute('data-cell', comment.cell);
+        card.className = `word-comment-card p-3 rounded-2xl border bg-white ${
+          isDone ? 'resolved-card' : 'border-slate-200'
+        } ${isActive ? 'active-comment' : ''} shadow-xs relative group cursor-pointer`;
+
+        card.onclick = (e) => {
+          if (!e.target.closest('button') && !e.target.closest('input')) {
+            jumpToCell(comment.cell);
+          }
+        };
+
+        card.innerHTML = `
+          <!-- Header Bar -->
+          <div class="flex items-center justify-between gap-1 mb-2">
+            <div class="flex items-center space-x-2">
+              <div class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-xs shrink-0" style="background-color: ${comment.authorColor}">
+                ${comment.authorInitials}
+              </div>
+              <div class="leading-tight">
+                <div class="font-bold text-xs text-slate-800">${comment.author}</div>
+                <div class="text-[10px] text-slate-400 font-medium">${comment.timestamp}</div>
+              </div>
+            </div>
+
+            <div class="flex items-center space-x-1.5">
+              <!-- Linked Cell Pin -->
+              <span class="px-2 py-0.5 bg-slate-100 hover:bg-blue-50 text-word-700 rounded-md font-mono text-[10px] font-bold border border-slate-200 transition" title="Cell reference">
+                ${comment.cell}
+              </span>
+
+              <!-- Strikethrough Completion Checkbox -->
+              <button onclick="toggleCommentCompleted('${comment.id}')" class="w-6 h-6 rounded-full flex items-center justify-center transition border ${
+                isDone
+                  ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
+                  : 'bg-white border-slate-300 text-slate-400 hover:text-emerald-600 hover:border-emerald-600'
+              }" title="${isDone ? 'Mark uncompleted' : 'Mark completed & strike through'}">
+                <i class="fa-solid fa-check text-[11px]"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Comment Body with Strikethrough Effect -->
+          <div class="mt-1">
+            <p class="text-xs leading-relaxed transition-all ${isDone ? 'task-strikethrough' : 'text-slate-700 font-normal'}">
+              ${formatCommentMentions(comment.text)}
+            </p>
+
+            ${isDone && comment.completedBy ? `
+              <div class="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md w-max border border-emerald-200">
+                <i class="fa-solid fa-circle-check text-[10px] text-emerald-600"></i> Struck off by ${comment.completedBy}
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Threaded Replies (Word-Style) -->
+          ${comment.replies && comment.replies.length > 0 ? `
+            <div class="mt-2.5 pt-2 border-t border-slate-100 space-y-2">
+              ${comment.replies.map(r => `
+                <div class="text-[11px] bg-slate-50/80 p-2 rounded-xl border border-slate-100">
+                  <div class="flex items-center justify-between text-[10px] mb-0.5">
+                    <span class="font-bold text-slate-800">${r.author}</span>
+                    <span class="text-slate-400">${r.timestamp}</span>
+                  </div>
+                  <p class="text-slate-600">${r.text}</p>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+
+          <!-- Inline Quick Reply -->
+          <div class="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-1.5">
+            <input type="text" placeholder="Reply..." id="reply-input-${comment.id}" class="flex-1 text-[11px] px-2.5 py-1 bg-slate-50 hover:bg-white focus:bg-white rounded-lg border border-slate-200 focus:border-word-600 outline-none transition" onkeydown="if(event.key==='Enter') submitReply('${comment.id}')"/>
+            <button onclick="submitReply('${comment.id}')" class="p-1 px-2.5 text-word-600 hover:text-word-700 text-xs font-bold rounded-md hover:bg-blue-50 transition" title="Send reply (Enter)">
+              <i class="fa-solid fa-paper-plane text-[10px]"></i>
+            </button>
+          </div>
+        `;
+
+        container.appendChild(card);
+      });
+    }
+
+    function formatCommentMentions(text) {
+      return text.replace(/(@[a-zA-Z0-9_]+)/g, '<span class="mention-tag">$1</span>');
+    }
+
+    function toggleCommentCompleted(commentId) {
+      const target = comments.find(c => c.id === commentId);
+      if (!target) return;
+
+      target.completed = !target.completed;
+      target.completedBy = target.completed ? 'Alex Rivera (You)' : null;
+
+      if (target.completed) {
+        playChime('strike');
+        // Add subtle green cell tint to celebrate completion
+        cellDatabase[target.cell] = cellDatabase[target.cell] || {};
+        cellDatabase[target.cell].bg = '#ecfdf5';
+      } else {
+        playChime('undo');
+        if (cellDatabase[target.cell]) cellDatabase[target.cell].bg = '';
+      }
+
+      renderWordCommentStack();
+      renderCellValue(target.cell);
+
+      const msg = target.completed
+        ? `Task on ${target.cell} marked complete & struck through!`
+        : `Task reopened on ${target.cell}`;
+      showNotification(msg);
+    }
+
+    function triggerNewWordComment() {
+      if (taskbarMode === 'rail') setTaskbarMode('docked');
+
+      const draftBox = document.getElementById('newDraftCard');
+      draftBox.classList.remove('hidden');
+      document.getElementById('draftTargetCell').innerText = selectedCell;
+      const textarea = document.getElementById('draftCommentText');
+      textarea.value = '';
+      textarea.focus();
+
+      document.getElementById('commentsStackList').scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function closeDraftCard() {
+      document.getElementById('newDraftCard').classList.add('hidden');
+    }
+
+    function submitDraftComment() {
+      const textarea = document.getElementById('draftCommentText');
+      const text = textarea.value.trim();
+      if (!text) {
+        showNotification('Please enter a comment');
+        return;
+      }
+
+      const newC = {
+        id: 'c_' + Date.now(),
+        cell: selectedCell,
+        cellLabel: `Cell ${selectedCell}`,
+        author: 'Alex Rivera (You)',
+        authorInitials: 'AR',
+        authorColor: '#0b8043',
+        text: text,
+        completed: false,
+        completedBy: null,
+        timestamp: 'Just now',
+        replies: []
+      };
+
+      comments.unshift(newC);
+      textarea.value = '';
+      closeDraftCard();
+
+      playChime('add');
+      renderWordCommentStack();
+      renderCellValue(selectedCell);
+      showNotification(`Comment attached to cell ${selectedCell}`);
+    }
+
+    function submitReply(commentId) {
+      const input = document.getElementById(`reply-input-${commentId}`);
+      if (!input || !input.value.trim()) return;
+
+      const comment = comments.find(c => c.id === commentId);
+      if (comment) {
+        comment.replies.push({
+          author: 'Alex Rivera',
+          text: input.value.trim(),
+          timestamp: 'Just now'
+        });
+        input.value = '';
+        playChime('add');
+        renderWordCommentStack();
+        showNotification('Reply posted');
+      }
+    }
+
+    function jumpToCell(cellId) {
+      selectCell(cellId);
+      const el = document.getElementById(`cell-${cellId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        el.style.backgroundColor = '#dbeafe';
+        setTimeout(() => {
+          renderCellValue(cellId);
+        }, 1100);
+      }
+    }
+
+    function setCommentFilter(filter) {
+      currentFilter = filter;
+      ['all', 'pending', 'completed'].forEach(f => {
+        const btn = document.getElementById(`filterTab${f === 'all' ? 'All' : (f === 'pending' ? 'Pending' : 'Completed')}`);
+        if (f === filter) {
+          btn.className = 'px-2.5 py-0.5 rounded-md font-bold text-slate-800 bg-white shadow-xs';
+        } else {
+          btn.className = 'px-2.5 py-0.5 rounded-md text-slate-500 hover:text-slate-800 transition font-medium';
+        }
+      });
+      renderWordCommentStack();
+    }
+
+    function archiveCompletedComments() {
+      const count = comments.filter(c => c.completed).length;
+      if (count === 0) {
+        showNotification('No completed tasks to archive');
+        return;
+      }
+      comments = comments.filter(c => !c.completed);
+      renderWordCommentStack();
+      refreshAllCellDisplays();
+      showNotification(`Archived ${count} completed comment(s)`);
+    }
+
+    function setTaskbarMode(mode) {
+      taskbarMode = mode;
+      const bar = document.getElementById('teamTaskbar');
+      const standardContent = document.getElementById('standardTaskbarContent');
+      const railContent = document.getElementById('railViewContent');
+      const dockedBtn = document.getElementById('dockedModeBtn');
+      const fullBtn = document.getElementById('fullLayerModeBtn');
+      const layerBadge = document.getElementById('layerBadge');
+      const layerIcon = document.getElementById('layerToggleIcon');
+
+      bar.classList.remove('taskbar-docked', 'taskbar-full-layer', 'taskbar-rail');
+
+      if (mode === 'rail') {
+        bar.classList.add('taskbar-rail');
+        standardContent.classList.add('hidden');
+        railContent.classList.remove('hidden');
+        dockedBtn.className = 'px-2.5 py-1 rounded-md font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1.5 transition';
+        fullBtn.className = 'px-2.5 py-1 rounded-md font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1.5 transition';
+        showNotification('Margin collapsed to rail');
+      } else if (mode === 'full') {
+        bar.classList.add('taskbar-full-layer');
+        standardContent.classList.remove('hidden');
+        railContent.classList.add('hidden');
+        layerBadge.innerText = 'Full Screen Layer';
+        layerBadge.className = 'text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-mono font-bold';
+        layerIcon.className = 'fa-solid fa-down-left-and-up-right-to-center text-xs';
+
+        dockedBtn.className = 'px-2.5 py-1 rounded-md font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1.5 transition';
+        fullBtn.className = 'px-2.5 py-1 rounded-md font-bold text-purple-900 bg-purple-100 shadow-xs flex items-center gap-1.5 transition';
+        showNotification('Full Collaboration Layer expanded');
+      } else {
+        bar.classList.add('taskbar-docked');
+        standardContent.classList.remove('hidden');
+        railContent.classList.add('hidden');
+        layerBadge.innerText = 'Word Margin';
+        layerBadge.className = 'text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-mono font-semibold';
+        layerIcon.className = 'fa-solid fa-up-right-and-down-left-from-center text-xs';
+
+        dockedBtn.className = 'px-2.5 py-1 rounded-md font-bold text-word-700 bg-white shadow-xs flex items-center gap-1.5 transition';
+        fullBtn.className = 'px-2.5 py-1 rounded-md font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1.5 transition';
+      }
+
+      const pendingCount = comments.filter(c => !c.completed).length;
+      const railBadge = document.getElementById('railTaskCount');
+      if (railBadge) railBadge.innerText = pendingCount;
+    }
+
+    function toggleFullLayer() {
+      setTaskbarMode(taskbarMode === 'full' ? 'docked' : 'full');
+    }
+
+    function toggleTaskbarMode() {
+      setTaskbarMode(taskbarMode === 'rail' ? 'docked' : 'rail');
+    }
+
+    function handleGlobalKeydown(e) {
+      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          if (document.activeElement.id === 'draftCommentText') {
+            e.preventDefault();
+            submitDraftComment();
+          }
+        }
+        return;
+      }
+
+      // Word / Sheets Comment Shortcut: Ctrl + Alt + M / Cmd + Opt + M
+      if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'm' || e.key === 'M')) {
+        e.preventDefault();
+        triggerNewWordComment();
+        return;
+      }
+
+      // Strikethrough shortcut: Alt + Shift + 5 (or Cmd + Shift + X)
+      if (e.altKey && e.shiftKey && e.key === '5') {
+        e.preventDefault();
+        applyStyleToSelected('strike');
+        return;
+      }
+
+      // Cheatsheet shortcut: '?'
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        openShortcutsCheatSheet();
+        return;
+      }
+
+      // Toggle side margin: Alt + \
+      if (e.altKey && e.key === '\\') {
+        e.preventDefault();
+        toggleTaskbarMode();
+        return;
+      }
+
+      // Navigation
+      const colChar = selectedCell.charAt(0);
+      const row = parseInt(selectedCell.slice(1));
+      const colIdx = COL_NAMES.indexOf(colChar);
+
+      if (e.key === 'ArrowUp' && row > 1) {
+        e.preventDefault();
+        selectCell(`${colChar}${row - 1}`);
+      } else if (e.key === 'ArrowDown' && row < NUM_ROWS) {
+        e.preventDefault();
+        selectCell(`${colChar}${row + 1}`);
+      } else if (e.key === 'ArrowLeft' && colIdx > 0) {
+        e.preventDefault();
+        selectCell(`${COL_NAMES[colIdx - 1]}${row}`);
+      } else if (e.key === 'ArrowRight' && colIdx < NUM_COLS - 1) {
+        e.preventDefault();
+        selectCell(`${COL_NAMES[colIdx + 1]}${row}`);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        enterCellEditMode(selectedCell);
+      }
+    }
+
+    function openShortcutsCheatSheet() {
+      document.getElementById('shortcutsModal').classList.remove('hidden');
+    }
+
+    function closeShortcutsCheatSheet() {
+      document.getElementById('shortcutsModal').classList.add('hidden');
+    }
+
+    function copyAsciiShortcuts() {
+      const text = document.getElementById('asciiShortcutBlock').innerText;
+      const dummy = document.createElement('textarea');
+      dummy.value = text;
+      document.body.appendChild(dummy);
+      dummy.select();
+      document.execCommand('copy');
+      document.body.removeChild(dummy);
+      showNotification('Shortcuts cheat sheet copied to clipboard!');
+    }
+
+    function applyStyleToSelected(styleType) {
+      cellDatabase[selectedCell] = cellDatabase[selectedCell] || {};
+      if (styleType === 'bold') {
+        cellDatabase[selectedCell].bold = !cellDatabase[selectedCell].bold;
+      } else if (styleType === 'italic') {
+        cellDatabase[selectedCell].italic = !cellDatabase[selectedCell].italic;
+      } else if (styleType === 'strike') {
+        cellDatabase[selectedCell].strike = !cellDatabase[selectedCell].strike;
+        if (cellDatabase[selectedCell].strike) playChime('strike');
+      }
+      renderCellValue(selectedCell);
+      showNotification(`Applied ${styleType} to ${selectedCell}`);
+    }
+
+    function applyColorToSelected(colorHex) {
+      cellDatabase[selectedCell] = cellDatabase[selectedCell] || {};
+      cellDatabase[selectedCell].bg = cellDatabase[selectedCell].bg === colorHex ? '' : colorHex;
+      renderCellValue(selectedCell);
+      showNotification(`Highlighted ${selectedCell}`);
+    }
+
+    const apiKey = ""; // API key supplied automatically by Canvas runtime
+
+    async function callGemini(promptText, systemInstruction = "You are Gemini 2026, an intelligent collaborative spreadsheet AI engine built into Google Sheets. Provide direct, crisp, structured business intelligence and formula help.") {
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+      const payload = {
+        contents: [{ parts: [{ text: promptText }] }],
+        systemInstruction: { parts: [{ text: systemInstruction }] }
+      };
+
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+        const data = await response.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response received from Gemini.";
+      } catch (err) {
+        console.warn("Using offline smart fallback for Gemini copilot:", err);
+        return generateOfflineSmartFallback(promptText);
+      }
+    }
+
+    function generateOfflineSmartFallback(prompt) {
+      if (prompt.includes('formula')) {
+        return "=SUMIFS(E2:E10, F2:F10, \"Approved\", D2:D10, \">50\")\n\nExplanation: Aggregates expected ARR where status is Approved and budget exceeds 50k.";
+      }
+      if (prompt.includes('Digest') || prompt.includes('comments') || prompt.includes('tasks')) {
+        const pendingCount = comments.filter(c => !c.completed).length;
+        return `• Team Status: ${pendingCount} open comment threads stacked on the margin.\n• Urgent Blocker: Budget cap negotiation on cell D2 with Sarah Chen.\n• Recommendation: Cross off French/German localization tasks once procurement confirms quote.`;
+      }
+      return "Gemini 2026 Analysis:\n1. Positive ARR momentum in Q1 AI Copilot stream ($450k projected vs $120k budget).\n2. SOC2 audit pending third-party penetration report in cell G3.\n3. Recommend confirming approval in column F before Q2 commitments.";
+    }
+
+    async function aiSummarizeCommentsAndTasks() {
+      const digestBox = document.getElementById('aiDigestBox');
+      const content = document.getElementById('aiDigestContent');
+      digestBox.classList.remove('hidden');
+      content.innerHTML = '<span class="flex items-center gap-2 font-medium text-indigo-700"><i class="fa-solid fa-spinner fa-spin text-indigo-600"></i> Synthesizing open tasks & blockers with Gemini 2026...</span>';
+
+      const taskSummary = comments.map(c => `[Cell ${c.cell} - ${c.author} - ${c.completed ? 'STRUCK OFF' : 'OPEN'}]: "${c.text}"`).join('\n');
+      const prompt = `Here is the current list of Word-style team comments and tasks from our collaborative sheet:\n${taskSummary}\n\nProvide an executive 2-3 sentence digest summarizing what is completed/struck through, what is blocked, and what requires immediate attention.`;
+
+      const result = await callGemini(prompt, "You are an executive operational coordinator for Google Workspace and Microsoft Word. Be concise, punchy, and highlight team owners.");
+      content.innerText = result;
+      showNotification('Gemini 2026 Task Digest Updated');
+    }
+
+    async function aiEnhanceCommentText() {
+      const textarea = document.getElementById('draftCommentText');
+      const text = textarea.value.trim();
+      if (!text) {
+        textarea.value = "@Liam: Please verify cloud latency benchmarks and confirm deadline before Friday.";
+        return;
+      }
+
+      showNotification('Refining with Gemini...');
+      const prompt = `Refine this comment for an enterprise collaborative spreadsheet to make it clear, polite, and actionable with assigned owner syntax if missing: "${text}"`;
+      const enhanced = await callGemini(prompt, "Return ONLY the revised single-sentence comment text, nothing else.");
+      textarea.value = enhanced.trim().replace(/^"|"$/g, '');
+    }
+
+    async function aiGenerateFormula() {
+      const currentCell = selectedCell;
+      showNotification(`Asking Gemini for formula on ${currentCell}...`);
+
+      const prompt = `We have a table where Column D is 'Budget ($k)' and Column E is 'Expected ARR ($k)' from rows 2 to 5. Suggest a modern Google Sheets formula for cell ${currentCell} to compute average profit ratio or net variance. Return the exact formula starting with = and a 1-sentence explanation.`;
+      const result = await callGemini(prompt);
+
+      const formulaMatch = result.match(/(=[A-Z0-9_()+/*:,\s"'-]+)/);
+      if (formulaMatch) {
+        document.getElementById('formulaInput').value = formulaMatch[1].trim();
+        cellDatabase[currentCell] = cellDatabase[currentCell] || {};
+        cellDatabase[currentCell].val = formulaMatch[1].trim();
+        renderCellValue(currentCell);
+        playChime('add');
+      }
+      openAiPromptModal(`Formula Generated for ${currentCell}`, result);
+    }
+
+    function openAiPromptModal(presetTitle = null, presetContent = null) {
+      const modal = document.getElementById('aiModal');
+      modal.classList.remove('hidden');
+
+      if (presetContent) {
+        document.getElementById('aiOutputContainer').classList.remove('hidden');
+        document.getElementById('aiOutputContent').innerText = presetContent;
+      }
+    }
+
+    function closeAiModal() {
+      document.getElementById('aiModal').classList.add('hidden');
+    }
+
+    function setAiPromptPreset(text) {
+      document.getElementById('aiPromptInput').value = text;
+      executeGeminiCall();
+    }
+
+    async function executeGeminiCall() {
+      const prompt = document.getElementById('aiPromptInput').value.trim();
+      if (!prompt) return;
+
+      const outputContainer = document.getElementById('aiOutputContainer');
+      const outputContent = document.getElementById('aiOutputContent');
+      const runBtn = document.getElementById('runAiBtn');
+
+      outputContainer.classList.remove('hidden');
+      outputContent.innerHTML = '<span class="text-purple-600 font-sans flex items-center gap-2"><i class="fa-solid fa-spinner fa-spin"></i> Gemini is reasoning through sheet context & comment threads...</span>';
+      runBtn.disabled = true;
+
+      const startTime = performance.now();
+      const sheetSummary = JSON.stringify(cellDatabase);
+      const fullContextPrompt = `Spreadsheet JSON Data:\n${sheetSummary}\n\nCurrent Taskbar Comments:\n${JSON.stringify(comments)}\n\nUser Question:\n${prompt}`;
+
+      const response = await callGemini(fullContextPrompt);
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+
+      document.getElementById('aiExecutionTime').innerText = `Generated in ${elapsed}s (Gemini 2026)`;
+      outputContent.innerText = response;
+      runBtn.disabled = false;
+    }
+
+    function renderCollaboratorPills() {
+      const container = document.getElementById('collaboratorsPills');
+      container.innerHTML = '';
+
+      COLLABORATORS.forEach(collab => {
+        const pill = document.createElement('div');
+        pill.className = `w-7 h-7 rounded-full text-white font-bold text-[11px] flex items-center justify-center border-2 border-white shadow-xs ring-1 ${collab.ring} ${collab.bg} cursor-pointer transition transform hover:scale-110 hover:z-20`;
+        pill.title = `${collab.name} (${collab.role}) - Active Now`;
+        pill.innerText = collab.avatar;
+        pill.onclick = () => {
+          showNotification(`${collab.name} is working on cell ${teammatePositions[collab.name] || 'A1'}`);
+        };
+        container.appendChild(pill);
+      });
+    }
+
+    function renderTeammateBadgesOnCell(cellId, td) {
+      for (const [name, pos] of Object.entries(teammatePositions)) {
+        if (pos === cellId) {
+          const collab = COLLABORATORS.find(c => c.name === name);
+          if (collab) {
+            const badge = document.createElement('div');
+            badge.className = 'absolute -top-2.5 -left-1 px-1.5 py-0.2 rounded-md text-[9px] text-white font-bold shadow-xs pointer-events-none z-20 collaborator-cursor-pulse';
+            badge.style.backgroundColor = collab.color;
+            badge.innerText = collab.avatar;
+            td.appendChild(badge);
+          }
+        }
+      }
+    }
+
+    function toggleAutoSimulationStream() {
+      const btn = document.getElementById('liveSimToggleBtn');
+      const text = document.getElementById('liveSimBtnText');
+      const indicator = document.getElementById('liveSimIndicator');
+
+      if (liveSimulationInterval) {
+        clearInterval(liveSimulationInterval);
+        liveSimulationInterval = null;
+        text.innerText = 'Live Team Stream: Off';
+        indicator.className = 'w-2 h-2 rounded-full bg-slate-400';
+        btn.className = 'text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 flex items-center gap-1.5 transition font-semibold';
+        showNotification('Live collaborator stream paused');
+      } else {
+        liveSimulationInterval = setInterval(simulateCollaboratorAction, 4500);
+        text.innerText = 'Live Stream: Active';
+        indicator.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-ping';
+        btn.className = 'text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-lg border border-emerald-300 flex items-center gap-1.5 transition font-bold shadow-xs';
+        showNotification('Live multi-user simulation running!');
+        simulateCollaboratorAction();
+      }
+    }
+
+    function simulateCollaboratorAction() {
+      const randomCollab = COLLABORATORS[Math.floor(Math.random() * (COLLABORATORS.length - 1)) + 1];
+      const randomCell = `C${Math.floor(Math.random() * 4) + 2}`;
+
+      teammatePositions[randomCollab.name] = randomCell;
+
+      const uncompleted = comments.filter(c => !c.completed);
+      if (uncompleted.length > 1 && Math.random() > 0.5) {
+        const item = uncompleted[Math.floor(Math.random() * uncompleted.length)];
+        item.completed = true;
+        item.completedBy = randomCollab.name;
+        playChime('strike');
+        showNotification(`${randomCollab.name} completed and struck off task on ${item.cell}!`);
+      } else {
+        const actions = [
+          `@Alex: Updated ARR projections for Q2. Check this figure.`,
+          `@Team: Verified vendor quote, looks solid. Ready to proceed.`,
+          `Please double check the tax calculations in row 4.`,
+          `@Liam: Google Cloud latency test passed with 14ms response time!`
+        ];
+        const newAction = {
+          id: 'c_' + Date.now(),
+          cell: randomCell,
+          cellLabel: `Cell ${randomCell}`,
+          author: randomCollab.name,
+          authorInitials: randomCollab.avatar,
+          authorColor: randomCollab.color,
+          text: actions[Math.floor(Math.random() * actions.length)],
+          completed: false,
+          completedBy: null,
+          timestamp: 'Just now',
+          replies: []
+        };
+        comments.unshift(newAction);
+        playChime('add');
+        showNotification(`${randomCollab.name} posted a new comment on ${randomCell}`);
+      }
+
+      refreshAllCellDisplays();
+      renderWordCommentStack();
+    }
+
+    function updateQuickStats() {
+      document.getElementById('quickStatsSelection').innerText = `Selected: ${selectedCell}`;
+      const val = parseFloat(cellDatabase[selectedCell]?.val);
+      if (!isNaN(val)) {
+        document.getElementById('quickStatsSum').innerText = `SUM: $${val.toLocaleString()}`;
+        document.getElementById('quickStatsAvg').innerText = `AVG: $${val.toLocaleString()}`;
+      } else {
+        document.getElementById('quickStatsSum').innerText = `SUM: $310,000`;
+        document.getElementById('quickStatsAvg').innerText = `AVG: $77,500`;
+      }
+    }
+
+    function shareSheetModal() {
+      const modal = document.getElementById('shareModal');
+      modal.classList.remove('hidden');
+
+      const list = document.getElementById('shareUsersList');
+      list.innerHTML = COLLABORATORS.map(c => `
+        <div class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 text-xs">
+          <div class="flex items-center space-x-2">
+            <div class="w-6 h-6 rounded-full text-white font-bold text-[10px] flex items-center justify-center shadow-xs" style="background-color: ${c.color}">${c.avatar}</div>
+            <div>
+              <div class="font-bold text-slate-800">${c.name}</div>
+              <div class="text-[10px] text-slate-400 font-medium">${c.role}</div>
+            </div>
+          </div>
+          <span class="text-[11px] text-slate-500 font-semibold">${c.role === 'Owner' ? 'Owner' : 'Editor'}</span>
+        </div>
+      `).join('');
+    }
+
+    function addTeammateFromInput() {
+      const input = document.getElementById('inviteEmailInput');
+      const val = input.value.trim();
+      if (!val) return;
+      showNotification(`Invitation sent to ${val}`);
+      input.value = '';
+    }
+
+    function copyShareLink() {
+      const dummyInput = document.createElement('input');
+      dummyInput.value = window.location.href;
+      document.body.appendChild(dummyInput);
+      dummyInput.select();
+      document.execCommand('copy');
+      document.body.removeChild(dummyInput);
+      showNotification('Workspace sharing link copied to clipboard!');
+    }
+
+    function showNotification(msg) {
+      const toast = document.getElementById('toastNotification');
+      document.getElementById('toastMsg').innerText = msg;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+      }, 2600);
+    }
+  </script>
+</body>
+</html>
